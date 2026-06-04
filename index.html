@@ -9,84 +9,75 @@
 <!-- Firebase SDK -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore, collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
   // ─────────────────────────────────────────────────────────────
   //  CONFIGURACIÓN FIREBASE — COMPLETAR CON TUS CREDENCIALES
   // ─────────────────────────────────────────────────────────────
   const firebaseConfig = {
-    apiKey: "AIzaSyABNRIjvI2vtrYncd1GRUvr3xRA4M8Z8I0",              // <-- tu apiKey aquí
-    authDomain: "mapa-de-patologias-en-cr.firebaseapp.com",          // <-- tu authDomain aquí
-    projectId: "mapa-de-patologias-en-cr",           // <-- tu projectId aquí
-    storageBucket: "mapa-de-patologias-en-cr.firebasestorage.app",       // <-- tu storageBucket aquí
-    messagingSenderId: "719905773991",   // <-- tu messagingSenderId aquí
-    appId: "1:719905773991:web:47171adc518ff7284abe82"                // <-- tu appId aquí
+    apiKey: "",              // <-- tu apiKey aquí
+    authDomain: "",          // <-- tu authDomain aquí
+    projectId: "",           // <-- tu projectId aquí
+    storageBucket: "",       // <-- tu storageBucket aquí
+    messagingSenderId: "",   // <-- tu messagingSenderId aquí
+    appId: ""                // <-- tu appId aquí
   };
   // ─────────────────────────────────────────────────────────────
 
   let app, db;
   let fichasData = [];
-  let pinsData = [];
-  let editingId = null;
-  let pinMode = false;
-  let mapImage = null;
+  let pinsData   = [];
+  let editingId  = null;
+  let mapImage   = null;
 
+  // ── Helpers de color ────────────────────────────────────────
+  const NIVEL_COLOR = { 'Leve':'#22c55e', 'Moderado':'#f97316', 'Severo':'#ef4444' };
+  const NIVEL_CLS   = { 'Leve':'badge-leve', 'Moderado':'badge-mod', 'Severo':'badge-sev' };
+  const NIVEL_BORDER= { 'Leve':'border-leve', 'Moderado':'border-mod', 'Severo':'border-sev' };
+
+  // ── Firebase init ────────────────────────────────────────────
   try {
     app = initializeApp(firebaseConfig);
-    db = getFirestore(app);
+    db  = getFirestore(app);
     setConnectionStatus(true);
     initListeners();
   } catch(e) {
     setConnectionStatus(false);
     console.warn("Firebase no configurado:", e.message);
-    // Modo offline: funciona con datos en memoria
     window._offlineMode = true;
     initOfflineMode();
   }
 
   function setConnectionStatus(online) {
-    const dot = document.getElementById('conn-dot');
+    const dot   = document.getElementById('conn-dot');
     const label = document.getElementById('conn-label');
     if (!dot) { window._pendingConn = online; return; }
-    dot.className = online ? 'conn-dot online' : 'conn-dot offline';
+    dot.className   = online ? 'conn-dot online' : 'conn-dot offline';
     label.textContent = online ? 'Conectado' : 'Sin conexión';
   }
 
-  function initOfflineMode() {
-    window.addFicha = addFichaOffline;
-    window.deleteFicha = deleteFichaOffline;
-    window.updateFicha = updateFichaOffline;
-    window.addPin = addPinOffline;
-    window.deletePin = deletePinOffline;
-  }
-
-  // ── FICHAS ──────────────────────────────────────────────────
-
+  // ── Listeners Firestore ──────────────────────────────────────
   function initListeners() {
-    // Fichas en tiempo real
-    onSnapshot(collection(db, "fichas"), (snap) => {
+    onSnapshot(collection(db, "fichas"), snap => {
       fichasData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       renderFichas();
     });
-
-    // Pins en tiempo real
-    onSnapshot(collection(db, "pins"), (snap) => {
+    onSnapshot(collection(db, "pins"), snap => {
       pinsData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       renderPins();
     });
-
-    // Mapa guardado
-    onSnapshot(collection(db, "config"), (snap) => {
+    onSnapshot(collection(db, "config"), snap => {
       snap.docs.forEach(d => {
         if (d.id === "mapImage") {
           mapImage = d.data().src;
           const bg = document.getElementById('map-bg');
-          if (bg && mapImage) bg.src = mapImage;
+          if (bg && mapImage) { bg.src = mapImage; bg.style.display='block'; document.getElementById('map-placeholder').style.display='none'; }
         }
       });
     });
   }
 
+  // ── CRUD Fichas ──────────────────────────────────────────────
   window.addFicha = async function(data) {
     if (editingId) {
       await updateDoc(doc(db, "fichas", editingId), data);
@@ -95,27 +86,20 @@
       await addDoc(collection(db, "fichas"), data);
     }
   };
-
   window.deleteFicha = async function(id) {
     await deleteDoc(doc(db, "fichas", id));
-    // Eliminar pins vinculados
     const linked = pinsData.filter(p => p.fichaId === id);
     for (const p of linked) await deleteDoc(doc(db, "pins", p.id));
   };
-
   window.updateFicha = function(id) {
     editingId = id;
-    const ficha = fichasData.find(f => f.id === id);
-    if (ficha) openEditModal(ficha);
+    const f = fichasData.find(f => f.id === id);
+    if (f) openEditModal(f);
   };
 
-  window.addPin = async function(data) {
-    await addDoc(collection(db, "pins"), data);
-  };
-
-  window.deletePin = async function(id) {
-    await deleteDoc(doc(db, "pins", id));
-  };
+  // ── CRUD Pins ────────────────────────────────────────────────
+  window.addPin = async function(data) { await addDoc(collection(db, "pins"), data); };
+  window.deletePin = async function(id) { await deleteDoc(doc(db, "pins", id)); };
 
   window.saveMapImage = async function(src) {
     const { setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -123,49 +107,24 @@
     mapImage = src;
   };
 
-  // ── OFFLINE FALLBACKS ────────────────────────────────────────
-
+  // ── Offline fallbacks ────────────────────────────────────────
   let _oid = 1;
-  function addFichaOffline(data) {
-    const id = 'local_' + _oid++;
-    fichasData.push({ id, ...data });
-    renderFichas();
-  }
-  function deleteFichaOffline(id) {
-    fichasData = fichasData.filter(f => f.id !== id);
-    pinsData = pinsData.filter(p => p.fichaId !== id);
-    renderFichas(); renderPins();
-  }
-  function updateFichaOffline(id) {
-    editingId = id;
-    const ficha = fichasData.find(f => f.id === id);
-    if (ficha) openEditModal(ficha);
-  }
-  function addPinOffline(data) {
-    const id = 'lpin_' + _oid++;
-    pinsData.push({ id, ...data });
-    renderPins();
-  }
-  function deletePinOffline(id) {
-    pinsData = pinsData.filter(p => p.id !== id);
-    renderPins();
+  function initOfflineMode() {
+    window.addFicha = data => { fichasData.push({ id:'loc_'+_oid++, ...data }); renderFichas(); };
+    window.deleteFicha = id => { fichasData=fichasData.filter(f=>f.id!==id); pinsData=pinsData.filter(p=>p.fichaId!==id); renderFichas(); renderPins(); };
+    window.updateFicha = id => { editingId=id; const f=fichasData.find(f=>f.id===id); if(f) openEditModal(f); };
+    window.addPin = data => { pinsData.push({ id:'lp_'+_oid++, ...data }); renderPins(); };
+    window.deletePin = id => { pinsData=pinsData.filter(p=>p.id!==id); renderPins(); };
   }
 
-  // ── RENDER FICHAS ────────────────────────────────────────────
-
+  // ── Render Fichas ────────────────────────────────────────────
   window.renderFichas = function() {
     const grid = document.getElementById('fichas-grid');
-    const q = (document.getElementById('search-input')?.value || '').toLowerCase();
-    const nf = document.getElementById('filter-nivel')?.value || '';
     if (!grid) return;
-
+    const q  = (document.getElementById('search-input')?.value||'').toLowerCase();
+    const nf = document.getElementById('filter-nivel')?.value||'';
     let data = [...fichasData];
-    if (q) data = data.filter(f =>
-      (f.ubicacion||'').toLowerCase().includes(q) ||
-      (f.tipologia||'').toLowerCase().includes(q) ||
-      (f.fecha||'').toLowerCase().includes(q) ||
-      (f.estructura||'').toLowerCase().includes(q)
-    );
+    if (q)  data = data.filter(f => ['ubicacion','tipologia','fecha','estructura','piso'].some(k => (f[k]||'').toLowerCase().includes(q)));
     if (nf) data = data.filter(f => f.nivel === nf);
 
     if (!data.length) {
@@ -174,19 +133,29 @@
     }
 
     grid.innerHTML = data.map(f => {
-      const nivelCls = { 'Leve':'badge-leve', 'Moderado':'badge-mod', 'Severo':'badge-sev' }[f.nivel] || '';
-      const photos = f.fotos || [];
-      const photoHtml = photos.length ? `
-        <div class="card-photos count-${Math.min(photos.length,4)}">
-          ${photos.slice(0,4).map(src => `<img src="${src}" alt="foto" class="card-photo">`).join('')}
-        </div>` : `<div class="card-no-photo"><span>Sin fotos</span></div>`;
+      const nivelCls    = NIVEL_CLS[f.nivel]    || '';
+      const borderCls   = NIVEL_BORDER[f.nivel]  || '';
+      const nivelColor  = NIVEL_COLOR[f.nivel]   || '#4a5a7a';
+      const photos      = f.fotos || [];
+      const cnt         = Math.min(photos.length, 4);
+      const photoHtml   = cnt
+        ? `<div class="card-photos count-${cnt}">${photos.slice(0,4).map(s=>`<img src="${s}" class="card-photo" alt="foto">`).join('')}</div>`
+        : `<div class="card-no-photo"><span>Sin fotos</span></div>`;
 
-      return `<div class="ficha-card" data-id="${f.id}">
+      // Piso badge con color del nivel
+      const pisoBadge = f.piso
+        ? `<span class="piso-tag" style="background:${nivelColor}22;color:${nivelColor};border-color:${nivelColor}44">Piso ${f.piso}</span>`
+        : '';
+
+      return `<div class="ficha-card ${borderCls}">
         ${photoHtml}
         <div class="card-body">
           <div class="card-header-row">
-            <span class="card-fecha"><span class="card-label">Fecha</span>${f.fecha||'—'}</span>
-            <span class="badge ${nivelCls}">${f.nivel||'—'}</span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              ${pisoBadge}
+              <span class="badge ${nivelCls}">${f.nivel||'—'}</span>
+            </div>
+            <span class="card-fecha">${f.fecha||'—'}</span>
           </div>
           <div class="card-field"><span class="card-label">Ubicación</span><span>${f.ubicacion||'—'}</span></div>
           <div class="card-field"><span class="card-label">Tipología</span><span>${f.tipologia||'—'}</span></div>
@@ -200,82 +169,80 @@
     }).join('');
   };
 
+  // ── Render Pins ──────────────────────────────────────────────
   window.renderPins = function() {
     const container = document.getElementById('pins-container');
     if (!container) return;
     container.innerHTML = '';
     pinsData.forEach(p => {
       const ficha = fichasData.find(f => f.id === p.fichaId);
-      const clr = { 'Leve':'#22c55e', 'Moderado':'#f97316', 'Severo':'#ef4444' }[ficha?.nivel] || '#94a3b8';
-      const pin = document.createElement('div');
-      pin.className = 'map-pin';
-      pin.style.left = p.x + '%';
-      pin.style.top = p.y + '%';
+      const clr   = NIVEL_COLOR[ficha?.nivel] || '#94a3b8';
+      const pin   = document.createElement('div');
+      pin.className   = 'map-pin';
+      pin.style.left  = p.x + '%';
+      pin.style.top   = p.y + '%';
       pin.style.background = clr;
-      pin.innerHTML = `<span class="pin-floor">${p.piso||'1'}</span>`;
+      pin.style.boxShadow  = `0 0 0 3px ${clr}44, 0 2px 10px rgba(0,0,0,.5)`;
+      pin.innerHTML = `<span class="pin-floor">${p.piso||'?'}</span>`;
       pin.title = ficha ? `${ficha.tipologia} — ${ficha.nivel}` : 'Sin ficha';
-      pin.onclick = (e) => { e.stopPropagation(); showFichaPopup(p, ficha); };
-
-      const delBtn = document.createElement('button');
-      delBtn.className = 'pin-del';
-      delBtn.innerHTML = '×';
-      delBtn.onclick = (e) => { e.stopPropagation(); window.deletePin(p.id); };
-      pin.appendChild(delBtn);
-
+      pin.onclick = e => { e.stopPropagation(); showFichaPopup(p, ficha); };
+      const del = document.createElement('button');
+      del.className = 'pin-del'; del.innerHTML = '×';
+      del.onclick = e => { e.stopPropagation(); window.deletePin(p.id); };
+      pin.appendChild(del);
       container.appendChild(pin);
     });
   };
 
+  // ── Pin popup ────────────────────────────────────────────────
   function showFichaPopup(pin, ficha) {
     if (!ficha) { alert('Ficha no encontrada'); return; }
-    const popup = document.getElementById('pin-popup');
-    const content = document.getElementById('pin-popup-content');
-    const nivelCls = { 'Leve':'badge-leve', 'Moderado':'badge-mod', 'Severo':'badge-sev' }[ficha.nivel] || '';
-    const photos = ficha.fotos || [];
+    const content  = document.getElementById('pin-popup-content');
+    const nivelCls = NIVEL_CLS[ficha.nivel] || '';
+    const clr      = NIVEL_COLOR[ficha.nivel] || '#94a3b8';
+    const photos   = ficha.fotos || [];
+    const pisoBadge = pin.piso ? `<span class="piso-tag" style="background:${clr}22;color:${clr};border-color:${clr}44">Piso ${pin.piso}</span>` : '';
     content.innerHTML = `
-      <h3 class="popup-title">Ficha Técnica <span class="badge ${nivelCls}">${ficha.nivel}</span></h3>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span class="badge ${nivelCls}">${ficha.nivel||'—'}</span>
+        ${pisoBadge}
+      </div>
       ${photos.length ? `<div class="popup-photos">${photos.slice(0,4).map(s=>`<img src="${s}" class="popup-photo">`).join('')}</div>` : ''}
       <div class="popup-fields">
         <div class="pf"><span class="card-label">Fecha</span><span>${ficha.fecha||'—'}</span></div>
         <div class="pf"><span class="card-label">Ubicación</span><span>${ficha.ubicacion||'—'}</span></div>
         <div class="pf"><span class="card-label">Tipología</span><span>${ficha.tipologia||'—'}</span></div>
         <div class="pf"><span class="card-label">Estructura</span><span>${ficha.estructura||'—'}</span></div>
-        <div class="pf"><span class="card-label">Piso</span><span>${pin.piso||'—'}</span></div>
       </div>`;
-    popup.classList.add('open');
+    document.getElementById('pin-popup').classList.add('open');
   }
+  window.closePopup = () => document.getElementById('pin-popup').classList.remove('open');
 
-  window.closePopup = function() {
-    document.getElementById('pin-popup').classList.remove('open');
-  };
-
-  function openEditModal(ficha) {
-    document.getElementById('modal-fecha').value = ficha.fecha || '';
-    document.getElementById('modal-ubicacion').value = ficha.ubicacion || '';
-    document.getElementById('modal-tipologia').value = ficha.tipologia || '';
-    document.getElementById('modal-estructura').value = ficha.estructura || '';
-    document.getElementById('modal-nivel').value = ficha.nivel || '';
-    window._editFotos = ficha.fotos ? [...ficha.fotos] : [];
+  // ── Edit modal fill ──────────────────────────────────────────
+  function openEditModal(f) {
+    document.getElementById('modal-fecha').value     = f.fecha     || '';
+    document.getElementById('modal-ubicacion').value = f.ubicacion || '';
+    document.getElementById('modal-tipologia').value = f.tipologia || '';
+    document.getElementById('modal-estructura').value= f.estructura|| '';
+    document.getElementById('modal-nivel').value     = f.nivel     || '';
+    window._editFotos = f.fotos ? [...f.fotos] : [];
+    // Restore piso selection
+    window._selectedPiso = f.piso || null;
+    document.querySelectorAll('.piso-ficha-btn').forEach(b => {
+      b.classList.toggle('selected', b.dataset.piso === f.piso);
+    });
     renderPhotoPreview();
     document.getElementById('modal-title').textContent = 'Editar Ficha';
     document.getElementById('ficha-modal').classList.add('open');
   }
 
-  window.confirmDelete = function(id) {
-    if (confirm('¿Eliminar esta ficha técnica? Los pins vinculados también serán eliminados.')) {
-      window.deleteFicha(id);
-    }
+  window.confirmDelete = id => {
+    if (confirm('¿Eliminar esta ficha? Los pins vinculados también serán eliminados.')) window.deleteFicha(id);
   };
 
-  // Exponer para HTML inline
-  window.renderPins = renderPins;
-  window.renderFichas = renderFichas;
-  window.fichasData = fichasData;
-  window.pinsData = pinsData;
-
-  // Reactive proxy so HTML can access updated arrays
+  // Reactive getters
   Object.defineProperty(window, '_fichasData', { get: () => fichasData });
-  Object.defineProperty(window, '_pinsData', { get: () => pinsData });
+  Object.defineProperty(window, '_pinsData',   { get: () => pinsData });
 
   window.addEventListener('DOMContentLoaded', () => {
     if (window._pendingConn !== undefined) setConnectionStatus(window._pendingConn);
@@ -287,344 +254,340 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --bg: #0a0c10;
-    --bg2: #111520;
-    --bg3: #181e2e;
-    --surface: #1c2438;
+    --bg:       #0a0c10;
+    --bg2:      #111520;
+    --bg3:      #181e2e;
+    --surface:  #1c2438;
     --surface2: #232d42;
-    --border: #2a3550;
-    --border2: #344060;
-    --text: #e2e8f0;
+    --border:   #2a3550;
+    --border2:  #344060;
+    --text:     #e2e8f0;
     --text-muted: #7888a8;
-    --text-dim: #4a5a7a;
-    --accent: #3b82f6;
-    --accent2: #1d4ed8;
-    --leve: #22c55e;
-    --mod: #f97316;
-    --sev: #ef4444;
-    --radius: 10px;
-    --radius-lg: 16px;
-    --font: 'IBM Plex Sans', sans-serif;
-    --mono: 'IBM Plex Mono', monospace;
+    --text-dim:   #4a5a7a;
+    --accent:   #3b82f6;
+    --accent2:  #1d4ed8;
+    --leve:     #22c55e;
+    --mod:      #f97316;
+    --sev:      #ef4444;
+    --radius:   10px;
+    --radius-lg:16px;
+    --font:     'IBM Plex Sans', sans-serif;
+    --mono:     'IBM Plex Mono', monospace;
   }
 
-  body {
-    font-family: var(--font);
-    background: var(--bg);
-    color: var(--text);
-    min-height: 100vh;
-    overflow-x: hidden;
-  }
+  body { font-family: var(--font); background: var(--bg); color: var(--text); min-height:100vh; overflow-x:hidden; }
 
-  /* ── HEADER ── */
+  /* HEADER */
   .header {
-    background: var(--bg2);
-    border-bottom: 1px solid var(--border);
-    padding: 0 24px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    height: 58px;
-    position: sticky;
-    top: 0;
-    z-index: 100;
+    background: var(--bg2); border-bottom: 1px solid var(--border);
+    padding: 0 24px; display: flex; align-items: center;
+    justify-content: space-between; height: 58px;
+    position: sticky; top: 0; z-index: 100;
   }
-  .header-left { display: flex; flex-direction: column; gap: 1px; }
-  .header-title { font-size: 14px; font-weight: 600; letter-spacing: .02em; color: var(--text); }
-  .header-sub { font-size: 11px; color: var(--text-muted); font-family: var(--mono); }
-  .header-right { display: flex; align-items: center; gap: 20px; }
-  .authors { font-size: 10px; color: var(--text-dim); font-family: var(--mono); text-align: right; line-height: 1.5; }
+  .header-left { display:flex; flex-direction:column; gap:1px; }
+  .header-title { font-size:14px; font-weight:600; letter-spacing:.02em; }
+  .header-sub   { font-size:11px; color:var(--text-muted); font-family:var(--mono); }
+  .header-right { display:flex; align-items:center; gap:20px; }
+  .authors      { font-size:10px; color:var(--text-dim); font-family:var(--mono); text-align:right; line-height:1.6; }
+  .conn-indicator{ display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-muted); }
+  .conn-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .conn-dot.online  { background:var(--leve); box-shadow:0 0 6px var(--leve); animation:pulse-g 2s infinite; }
+  .conn-dot.offline { background:var(--sev); }
+  .conn-dot:not(.online):not(.offline) { background:var(--text-dim); }
+  @keyframes pulse-g { 0%,100%{opacity:1} 50%{opacity:.4} }
 
-  .conn-indicator { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
-  .conn-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .conn-dot.online { background: var(--leve); box-shadow: 0 0 6px var(--leve); animation: pulse-g 2s infinite; }
-  .conn-dot.offline { background: var(--sev); }
-  .conn-dot:not(.online):not(.offline) { background: var(--text-dim); }
-  @keyframes pulse-g { 0%,100%{opacity:1} 50%{opacity:.5} }
-
-  /* ── TABS ── */
-  .tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--bg2); padding: 0 24px; }
+  /* TABS */
+  .tabs { display:flex; border-bottom:1px solid var(--border); background:var(--bg2); padding:0 24px; }
   .tab-btn {
-    background: none; border: none; color: var(--text-muted);
-    font-family: var(--font); font-size: 13px; font-weight: 500;
-    padding: 14px 20px; cursor: pointer; border-bottom: 2px solid transparent;
-    transition: color .2s, border-color .2s;
-    position: relative; bottom: -1px;
+    background:none; border:none; color:var(--text-muted);
+    font-family:var(--font); font-size:13px; font-weight:500;
+    padding:14px 20px; cursor:pointer;
+    border-bottom:2px solid transparent;
+    transition:color .2s, border-color .2s;
+    position:relative; bottom:-1px;
   }
-  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .tab-btn:hover:not(.active) { color: var(--text); }
+  .tab-btn.active { color:var(--accent); border-bottom-color:var(--accent); }
+  .tab-btn:hover:not(.active) { color:var(--text); }
 
-  /* ── PANELS ── */
-  .panel { display: none; }
-  .panel.active { display: block; }
+  /* PANELS */
+  .panel { display:none; }
+  .panel.active { display:block; }
 
-  /* ── FICHAS PANEL ── */
+  /* TOOLBAR */
   .fichas-toolbar {
-    padding: 16px 24px;
-    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg2);
+    padding:14px 24px; display:flex; align-items:center;
+    gap:10px; flex-wrap:wrap;
+    border-bottom:1px solid var(--border); background:var(--bg2);
   }
   .search-box {
-    flex: 1; min-width: 180px;
-    background: var(--surface); border: 1px solid var(--border2);
-    border-radius: var(--radius); padding: 8px 14px;
-    font-family: var(--font); font-size: 13px; color: var(--text);
-    outline: none; transition: border-color .2s;
+    flex:1; min-width:180px;
+    background:var(--surface); border:1px solid var(--border2);
+    border-radius:var(--radius); padding:8px 14px;
+    font-family:var(--font); font-size:13px; color:var(--text);
+    outline:none; transition:border-color .2s;
   }
-  .search-box::placeholder { color: var(--text-dim); }
-  .search-box:focus { border-color: var(--accent); }
-
+  .search-box::placeholder { color:var(--text-dim); }
+  .search-box:focus { border-color:var(--accent); }
   .filter-select {
-    background: var(--surface); border: 1px solid var(--border2);
-    border-radius: var(--radius); padding: 8px 14px;
-    font-family: var(--font); font-size: 13px; color: var(--text);
-    outline: none; cursor: pointer;
+    background:var(--surface); border:1px solid var(--border2);
+    border-radius:var(--radius); padding:8px 14px;
+    font-family:var(--font); font-size:13px; color:var(--text);
+    outline:none; cursor:pointer;
   }
-  .filter-select:focus { border-color: var(--accent); }
-
   .btn-primary {
-    background: var(--accent); color: #fff;
-    border: none; border-radius: var(--radius);
-    padding: 8px 16px; font-family: var(--font); font-size: 13px; font-weight: 500;
-    cursor: pointer; transition: background .2s, transform .1s;
-    white-space: nowrap;
+    background:var(--accent); color:#fff;
+    border:none; border-radius:var(--radius);
+    padding:8px 16px; font-family:var(--font); font-size:13px; font-weight:500;
+    cursor:pointer; transition:background .2s, transform .1s; white-space:nowrap;
   }
-  .btn-primary:hover { background: var(--accent2); }
-  .btn-primary:active { transform: scale(.97); }
+  .btn-primary:hover  { background:var(--accent2); }
+  .btn-primary:active { transform:scale(.97); }
 
-  /* ── CARD GRID ── */
+  /* CARD GRID */
   .fichas-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 18px;
-    padding: 24px;
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(310px,1fr));
+    gap:18px; padding:24px;
   }
 
+  /* CARD — border-left colorizado por nivel */
   .ficha-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-    transition: border-color .2s, transform .15s;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-left-width:4px;
+    border-radius:var(--radius-lg);
+    overflow:hidden;
+    transition:border-color .2s, transform .15s, box-shadow .2s;
   }
-  .ficha-card:hover { border-color: var(--border2); transform: translateY(-2px); }
+  .ficha-card:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,0,.3); }
+  .ficha-card.border-leve  { border-left-color:var(--leve); }
+  .ficha-card.border-mod   { border-left-color:var(--mod);  }
+  .ficha-card.border-sev   { border-left-color:var(--sev);  }
 
-  .card-photos {
-    display: grid;
-    height: 180px;
-    gap: 2px;
-    background: var(--bg);
-  }
-  .card-photos.count-1 { grid-template-columns: 1fr; }
-  .card-photos.count-2 { grid-template-columns: 1fr 1fr; }
-  .card-photos.count-3 { grid-template-columns: 2fr 1fr; grid-template-rows: 1fr 1fr; }
-  .card-photos.count-3 .card-photo:first-child { grid-row: span 2; }
-  .card-photos.count-4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
-
-  .card-photo { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* PHOTOS */
+  .card-photos { display:grid; height:175px; gap:2px; background:var(--bg); }
+  .card-photos.count-1 { grid-template-columns:1fr; }
+  .card-photos.count-2 { grid-template-columns:1fr 1fr; }
+  .card-photos.count-3 { grid-template-columns:2fr 1fr; grid-template-rows:1fr 1fr; }
+  .card-photos.count-3 .card-photo:first-child { grid-row:span 2; }
+  .card-photos.count-4 { grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; }
+  .card-photo { width:100%; height:100%; object-fit:cover; display:block; }
   .card-no-photo {
-    height: 100px;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--text-dim); font-size: 12px; background: var(--bg3);
+    height:90px; display:flex; align-items:center; justify-content:center;
+    color:var(--text-dim); font-size:12px; background:var(--bg3);
   }
 
-  .card-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
-  .card-header-row { display: flex; align-items: center; justify-content: space-between; }
-  .card-fecha { font-family: var(--mono); font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 1px; }
-  .card-field { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
-  .card-label { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim); }
-
-  .badge { display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; }
-  .badge-leve { background: rgba(34,197,94,.15); color: var(--leve); border: 1px solid rgba(34,197,94,.3); }
-  .badge-mod  { background: rgba(249,115,22,.15); color: var(--mod);  border: 1px solid rgba(249,115,22,.3); }
-  .badge-sev  { background: rgba(239,68,68,.15);  color: var(--sev);  border: 1px solid rgba(239,68,68,.3); }
-
-  .card-actions { display: flex; gap: 8px; margin-top: 4px; }
+  /* CARD BODY */
+  .card-body { padding:13px 15px; display:flex; flex-direction:column; gap:8px; }
+  .card-header-row { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:4px; }
+  .card-fecha { font-family:var(--mono); font-size:11px; color:var(--text-muted); }
+  .card-field { display:flex; flex-direction:column; gap:2px; font-size:13px; }
+  .card-label { font-size:10px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--text-dim); }
+  .card-actions { display:flex; gap:8px; margin-top:2px; }
   .btn-edit, .btn-del {
-    flex: 1; padding: 6px; border-radius: 6px; font-family: var(--font);
-    font-size: 12px; cursor: pointer; border: 1px solid;
-    transition: background .2s;
+    flex:1; padding:6px; border-radius:6px;
+    font-family:var(--font); font-size:12px; cursor:pointer; border:1px solid;
+    transition:background .15s;
   }
-  .btn-edit { background: transparent; border-color: var(--border2); color: var(--text-muted); }
-  .btn-edit:hover { background: var(--surface2); color: var(--text); }
-  .btn-del { background: transparent; border-color: rgba(239,68,68,.3); color: var(--sev); }
-  .btn-del:hover { background: rgba(239,68,68,.1); }
+  .btn-edit { background:transparent; border-color:var(--border2); color:var(--text-muted); }
+  .btn-edit:hover { background:var(--surface2); color:var(--text); }
+  .btn-del  { background:transparent; border-color:rgba(239,68,68,.3); color:var(--sev); }
+  .btn-del:hover  { background:rgba(239,68,68,.1); }
 
-  .empty-state {
-    grid-column: 1/-1;
-    text-align: center; padding: 60px;
-    color: var(--text-dim); font-size: 13px;
+  /* BADGES */
+  .badge { display:inline-block; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:600; border:1px solid; }
+  .badge-leve { background:rgba(34,197,94,.12);  color:var(--leve); border-color:rgba(34,197,94,.3); }
+  .badge-mod  { background:rgba(249,115,22,.12); color:var(--mod);  border-color:rgba(249,115,22,.3); }
+  .badge-sev  { background:rgba(239,68,68,.12);  color:var(--sev);  border-color:rgba(239,68,68,.3); }
+
+  /* PISO TAG (color dinámico via style inline) */
+  .piso-tag {
+    display:inline-block; padding:3px 9px; border-radius:20px;
+    font-size:11px; font-weight:700; border:1px solid;
+    font-family:var(--mono);
   }
-  .empty-icon { font-size: 36px; margin-bottom: 12px; opacity: .4; }
 
-  /* ── MODAL ── */
+  /* EMPTY */
+  .empty-state { grid-column:1/-1; text-align:center; padding:60px; color:var(--text-dim); font-size:13px; }
+  .empty-icon  { font-size:36px; margin-bottom:12px; opacity:.3; }
+
+  /* MODAL */
   .modal-overlay {
-    display: none; position: fixed; inset: 0;
-    background: rgba(0,0,0,.7); z-index: 500;
-    align-items: center; justify-content: center;
-    padding: 20px;
+    display:none; position:fixed; inset:0;
+    background:rgba(0,0,0,.72); z-index:500;
+    align-items:center; justify-content:center; padding:20px;
   }
-  .modal-overlay.open { display: flex; }
+  .modal-overlay.open { display:flex; }
   .modal {
-    background: var(--bg2); border: 1px solid var(--border2);
-    border-radius: var(--radius-lg); width: 100%; max-width: 520px;
-    max-height: 90vh; overflow-y: auto;
+    background:var(--bg2); border:1px solid var(--border2);
+    border-radius:var(--radius-lg); width:100%; max-width:520px;
+    max-height:90vh; overflow-y:auto;
   }
   .modal-header {
-    padding: 18px 22px; border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; justify-content: space-between;
+    padding:17px 22px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; background:var(--bg2); z-index:1;
   }
-  .modal-header h2 { font-size: 15px; font-weight: 600; }
-  .modal-close {
-    background: none; border: none; color: var(--text-muted);
-    font-size: 20px; cursor: pointer; line-height: 1;
-  }
-  .modal-body { padding: 22px; display: flex; flex-direction: column; gap: 16px; }
-  .form-group { display: flex; flex-direction: column; gap: 6px; }
-  .form-label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+  .modal-header h2 { font-size:15px; font-weight:600; }
+  .modal-close { background:none; border:none; color:var(--text-muted); font-size:20px; cursor:pointer; line-height:1; }
+  .modal-body  { padding:22px; display:flex; flex-direction:column; gap:16px; }
+  .form-group  { display:flex; flex-direction:column; gap:6px; }
+  .form-label  { font-size:11px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--text-muted); }
   .form-input, .form-select {
-    background: var(--surface); border: 1px solid var(--border2);
-    border-radius: var(--radius); padding: 9px 13px;
-    font-family: var(--font); font-size: 13px; color: var(--text);
-    outline: none; transition: border-color .2s; width: 100%;
+    background:var(--surface); border:1px solid var(--border2);
+    border-radius:var(--radius); padding:9px 13px;
+    font-family:var(--font); font-size:13px; color:var(--text);
+    outline:none; transition:border-color .2s; width:100%;
   }
-  .form-input:focus, .form-select:focus { border-color: var(--accent); }
-
-  .photo-upload-area {
-    border: 1px dashed var(--border2); border-radius: var(--radius);
-    padding: 18px; text-align: center; cursor: pointer;
-    color: var(--text-muted); font-size: 13px;
-    transition: border-color .2s, background .2s;
+  .form-input:focus, .form-select:focus { border-color:var(--accent); }
+  .modal-footer {
+    padding:15px 22px; border-top:1px solid var(--border);
+    display:flex; justify-content:flex-end; gap:10px;
+    position:sticky; bottom:0; background:var(--bg2);
   }
-  .photo-upload-area:hover { border-color: var(--accent); background: rgba(59,130,246,.05); }
-
-  .photo-previews { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
-  .photo-preview-item { position: relative; aspect-ratio: 1; border-radius: 6px; overflow: hidden; }
-  .photo-preview-item img { width: 100%; height: 100%; object-fit: cover; }
-  .photo-remove {
-    position: absolute; top: 3px; right: 3px;
-    background: rgba(0,0,0,.7); color: #fff; border: none;
-    width: 18px; height: 18px; border-radius: 50%; font-size: 12px;
-    cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1;
-  }
-
-  .modal-footer { padding: 16px 22px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
   .btn-cancel {
-    background: none; border: 1px solid var(--border2); color: var(--text-muted);
-    border-radius: var(--radius); padding: 8px 16px;
-    font-family: var(--font); font-size: 13px; cursor: pointer;
+    background:none; border:1px solid var(--border2); color:var(--text-muted);
+    border-radius:var(--radius); padding:8px 16px;
+    font-family:var(--font); font-size:13px; cursor:pointer;
   }
-  .btn-cancel:hover { color: var(--text); border-color: var(--border2); }
+  .btn-cancel:hover { color:var(--text); }
 
-  /* ── MAP PANEL ── */
-  .map-panel { height: calc(100vh - 118px); display: flex; flex-direction: column; }
+  /* PISO SELECTOR (dentro del formulario de ficha) */
+  .piso-selector { display:flex; gap:8px; flex-wrap:wrap; }
+  .piso-ficha-btn {
+    padding:8px 14px; border-radius:8px;
+    border:1px solid var(--border2);
+    background:var(--surface); color:var(--text-muted);
+    cursor:pointer; font-family:var(--mono); font-size:13px; font-weight:500;
+    transition:all .15s; min-width:44px; text-align:center;
+  }
+  .piso-ficha-btn:hover { border-color:var(--border2); color:var(--text); background:var(--surface2); }
+  .piso-ficha-btn.selected { background:var(--accent); border-color:var(--accent); color:#fff; }
+  /* Colores de piso btn según nivel seleccionado — se aplican via JS */
+
+  /* PHOTOS upload */
+  .photo-upload-area {
+    border:1px dashed var(--border2); border-radius:var(--radius);
+    padding:18px; text-align:center; cursor:pointer;
+    color:var(--text-muted); font-size:13px;
+    transition:border-color .2s, background .2s;
+  }
+  .photo-upload-area:hover { border-color:var(--accent); background:rgba(59,130,246,.04); }
+  .photo-previews { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:8px; }
+  .photo-preview-item { position:relative; aspect-ratio:1; border-radius:6px; overflow:hidden; }
+  .photo-preview-item img { width:100%; height:100%; object-fit:cover; }
+  .photo-remove {
+    position:absolute; top:3px; right:3px;
+    background:rgba(0,0,0,.75); color:#fff; border:none;
+    width:18px; height:18px; border-radius:50%; font-size:12px;
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+  }
+
+  /* ── NIVEL PREVIEW en formulario ── */
+  .nivel-preview {
+    display:none; align-items:center; gap:8px;
+    padding:8px 12px; border-radius:8px;
+    border:1px solid var(--border2); background:var(--surface);
+    font-size:12px; color:var(--text-muted);
+  }
+  .nivel-preview.visible { display:flex; }
+  .nivel-swatch { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+
+  /* MAP */
+  .map-panel { height:calc(100vh - 118px); display:flex; flex-direction:column; }
   .map-toolbar {
-    padding: 12px 24px; display: flex; gap: 10px; align-items: center;
-    border-bottom: 1px solid var(--border); background: var(--bg2); flex-shrink: 0;
+    padding:12px 24px; display:flex; gap:10px; align-items:center;
+    border-bottom:1px solid var(--border); background:var(--bg2); flex-shrink:0;
   }
   .btn-pinmode {
-    background: var(--surface); border: 1px solid var(--border2);
-    color: var(--text-muted); border-radius: var(--radius);
-    padding: 7px 14px; font-family: var(--font); font-size: 12px; font-weight: 500;
-    cursor: pointer; transition: all .2s; display: flex; align-items: center; gap: 6px;
+    background:var(--surface); border:1px solid var(--border2);
+    color:var(--text-muted); border-radius:var(--radius);
+    padding:7px 14px; font-family:var(--font); font-size:12px; font-weight:500;
+    cursor:pointer; transition:all .2s; display:flex; align-items:center; gap:6px;
   }
-  .btn-pinmode.active { background: rgba(59,130,246,.15); border-color: var(--accent); color: var(--accent); }
-  .btn-pinmode:hover:not(.active) { border-color: var(--border2); color: var(--text); }
+  .btn-pinmode.active { background:rgba(59,130,246,.12); border-color:var(--accent); color:var(--accent); }
+  .btn-upload-map {
+    background:var(--surface); border:1px solid var(--border2);
+    color:var(--text-muted); border-radius:var(--radius);
+    padding:7px 14px; font-family:var(--font); font-size:12px;
+    cursor:pointer; transition:all .2s;
+  }
+  .btn-upload-map:hover { color:var(--text); }
 
   .map-container {
-    flex: 1; position: relative; overflow: hidden; background: var(--bg3);
-    cursor: default;
+    flex:1; position:relative; overflow:hidden;
+    background:var(--bg3); cursor:default;
   }
-  .map-container.pin-mode { cursor: crosshair; }
-
-  #map-bg {
-    width: 100%; height: 100%; object-fit: contain;
-    display: block; pointer-events: none;
-  }
+  .map-container.pin-mode { cursor:crosshair; }
+  #map-bg { width:100%; height:100%; object-fit:contain; display:block; pointer-events:none; }
   .map-placeholder {
-    position: absolute; inset: 0;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    color: var(--text-dim); gap: 12px;
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    color:var(--text-dim); gap:12px;
   }
-  .map-placeholder-icon { font-size: 48px; opacity: .3; }
-  .map-placeholder p { font-size: 13px; }
+  .map-placeholder-icon { font-size:48px; opacity:.25; }
+  .map-placeholder p { font-size:13px; }
 
-  #pins-container { position: absolute; inset: 0; pointer-events: none; }
+  #pins-container { position:absolute; inset:0; pointer-events:none; }
   .map-pin {
-    position: absolute; transform: translate(-50%, -50%);
-    width: 32px; height: 32px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    border: 2px solid rgba(255,255,255,.3);
-    cursor: pointer; pointer-events: all;
-    box-shadow: 0 2px 8px rgba(0,0,0,.4);
-    transition: transform .15s;
-    z-index: 10;
+    position:absolute; transform:translate(-50%,-50%);
+    width:34px; height:34px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; pointer-events:all;
+    transition:transform .15s;
+    z-index:10;
   }
-  .map-pin:hover { transform: translate(-50%,-50%) scale(1.15); }
-  .pin-floor { font-family: var(--mono); font-size: 10px; font-weight: 700; color: #fff; letter-spacing: -.02em; }
+  .map-pin:hover { transform:translate(-50%,-50%) scale(1.18); }
+  .pin-floor { font-family:var(--mono); font-size:10px; font-weight:700; color:#fff; letter-spacing:-.02em; }
   .pin-del {
-    position: absolute; top: -6px; right: -6px;
-    width: 16px; height: 16px; border-radius: 50%;
-    background: var(--sev); color: #fff; border: none;
-    font-size: 12px; cursor: pointer; display: none;
-    align-items: center; justify-content: center; line-height: 1;
+    position:absolute; top:-6px; right:-6px;
+    width:16px; height:16px; border-radius:50%;
+    background:var(--sev); color:#fff; border:none;
+    font-size:12px; cursor:pointer; display:none;
+    align-items:center; justify-content:center; line-height:1;
   }
-  .map-pin:hover .pin-del { display: flex; }
+  .map-pin:hover .pin-del { display:flex; }
 
-  /* ── PIN SELECTION MODAL ── */
-  #pin-select-modal .modal { max-width: 400px; }
+  /* PIN SELECT MODAL */
+  #pin-select-modal .modal { max-width:400px; }
   .ficha-option {
-    padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border);
-    cursor: pointer; transition: background .15s, border-color .15s;
-    display: flex; align-items: center; justify-content: space-between;
+    padding:10px 14px; border-radius:8px; border:1px solid var(--border);
+    cursor:pointer; transition:background .15s, border-color .15s;
+    display:flex; align-items:center; justify-content:space-between;
   }
-  .ficha-option:hover { background: var(--surface2); border-color: var(--border2); }
-  .ficha-option-name { font-size: 13px; }
-  .ficha-option-meta { font-size: 11px; color: var(--text-muted); }
-
-  .piso-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .ficha-option:hover { background:var(--surface2); border-color:var(--border2); }
+  .ficha-option-name { font-size:13px; }
+  .ficha-option-meta { font-size:11px; color:var(--text-muted); }
+  .piso-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
   .piso-btn {
-    padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border2);
-    background: var(--surface); color: var(--text-muted); cursor: pointer;
-    font-family: var(--mono); font-size: 12px; transition: all .15s;
+    padding:7px 14px; border-radius:7px; border:1px solid var(--border2);
+    background:var(--surface); color:var(--text-muted);
+    cursor:pointer; font-family:var(--mono); font-size:12px; transition:all .15s;
   }
-  .piso-btn.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .piso-btn.selected { background:var(--accent); border-color:var(--accent); color:#fff; }
 
-  /* ── PIN POPUP ── */
+  /* PIN POPUP */
   #pin-popup {
-    display: none; position: absolute; z-index: 200;
-    top: 0; right: 0; bottom: 0; width: 320px;
-    background: var(--bg2); border-left: 1px solid var(--border);
-    flex-direction: column; overflow-y: auto;
+    display:none; position:absolute; z-index:200;
+    top:0; right:0; bottom:0; width:300px;
+    background:var(--bg2); border-left:1px solid var(--border);
+    flex-direction:column; overflow-y:auto;
   }
-  #pin-popup.open { display: flex; }
+  #pin-popup.open { display:flex; }
   .popup-header {
-    padding: 14px 16px; border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; justify-content: space-between;
-    flex-shrink: 0;
+    padding:13px 16px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between; flex-shrink:0;
   }
-  .popup-title { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
-  .popup-close { background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer; }
-  #pin-popup-content { padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-  .popup-photos { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; border-radius: 8px; overflow: hidden; }
-  .popup-photo { width: 100%; aspect-ratio: 1; object-fit: cover; }
-  .popup-fields { display: flex; flex-direction: column; gap: 8px; }
-  .pf { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+  .popup-close { background:none; border:none; color:var(--text-muted); font-size:20px; cursor:pointer; }
+  #pin-popup-content { padding:16px; display:flex; flex-direction:column; gap:10px; }
+  .popup-photos { display:grid; grid-template-columns:1fr 1fr; gap:4px; border-radius:8px; overflow:hidden; }
+  .popup-photo  { width:100%; aspect-ratio:1; object-fit:cover; }
+  .popup-fields { display:flex; flex-direction:column; gap:8px; }
+  .pf { display:flex; flex-direction:column; gap:2px; font-size:13px; }
 
-  /* ── UPLOAD MAP BTN ── */
-  .btn-upload-map {
-    background: var(--surface); border: 1px solid var(--border2);
-    color: var(--text-muted); border-radius: var(--radius);
-    padding: 7px 14px; font-family: var(--font); font-size: 12px;
-    cursor: pointer; transition: all .2s;
-  }
-  .btn-upload-map:hover { color: var(--text); border-color: var(--border2); }
-
-  /* ── SCROLLBAR ── */
-  ::-webkit-scrollbar { width: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width:6px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:var(--border2); border-radius:3px; }
 </style>
 </head>
 <body>
@@ -655,12 +618,12 @@
 <!-- PANEL: FICHAS -->
 <div class="panel active" id="panel-fichas">
   <div class="fichas-toolbar">
-    <input class="search-box" id="search-input" type="text" placeholder="Buscar por tipología, ubicación, fecha…" oninput="window.renderFichas()">
+    <input class="search-box" id="search-input" type="text"
+           placeholder="Buscar por tipología, ubicación, piso, fecha…"
+           oninput="window.renderFichas()">
     <select class="filter-select" id="filter-nivel" onchange="window.renderFichas()">
       <option value="">Todos los niveles</option>
-      <option value="Leve">Leve</option>
-      <option value="Moderado">Moderado</option>
-      <option value="Severo">Severo</option>
+      <option>Leve</option><option>Moderado</option><option>Severo</option>
     </select>
     <button class="btn-primary" onclick="openAddModal()">+ Añadir Ficha</button>
   </div>
@@ -680,7 +643,7 @@
         ↑ Cargar Plano
         <input type="file" accept="image/*" style="display:none" onchange="loadMapImage(event)">
       </label>
-      <span id="pin-hint" style="font-size:12px; color:var(--text-dim); display:none;">
+      <span id="pin-hint" style="font-size:12px;color:var(--text-dim);display:none;">
         Haz clic en el plano para colocar un pin
       </span>
     </div>
@@ -691,7 +654,6 @@
         <p>Carga el plano del campus usando el botón superior</p>
       </div>
       <div id="pins-container"></div>
-      <!-- Pin popup (slide-in) -->
       <div id="pin-popup">
         <div class="popup-header">
           <span style="font-size:13px;font-weight:600;color:var(--text-muted)">Ficha vinculada</span>
@@ -711,10 +673,12 @@
       <button class="modal-close" onclick="closeModal()">×</button>
     </div>
     <div class="modal-body">
+
       <div class="form-group">
         <label class="form-label">Fecha</label>
         <input class="form-input" id="modal-fecha" type="text" placeholder="DD/MM/AA">
       </div>
+
       <div class="form-group">
         <label class="form-label">Ubicación</label>
         <select class="form-select" id="modal-ubicacion">
@@ -722,6 +686,7 @@
           <option>Norte</option><option>Sur</option><option>Este</option><option>Oeste</option>
         </select>
       </div>
+
       <div class="form-group">
         <label class="form-label">Tipología de Daño</label>
         <select class="form-select" id="modal-tipologia">
@@ -733,6 +698,7 @@
           <option>Deficiencias constructivas</option>
         </select>
       </div>
+
       <div class="form-group">
         <label class="form-label">Tipo de Estructura</label>
         <select class="form-select" id="modal-estructura">
@@ -740,13 +706,34 @@
           <option>Funcional</option><option>Estructural</option><option>Decorativa</option>
         </select>
       </div>
+
+      <!-- NIVEL DE DAÑO — actualiza preview automáticamente -->
       <div class="form-group">
         <label class="form-label">Nivel de Daño</label>
-        <select class="form-select" id="modal-nivel">
+        <select class="form-select" id="modal-nivel" onchange="updateNivelPreview()">
           <option value="">Seleccionar…</option>
           <option>Leve</option><option>Moderado</option><option>Severo</option>
         </select>
+        <!-- Preview en tiempo real -->
+        <div class="nivel-preview" id="nivel-preview">
+          <div class="nivel-swatch" id="nivel-swatch"></div>
+          <span id="nivel-preview-text"></span>
+        </div>
       </div>
+
+      <!-- PISO — selector visual con botones -->
+      <div class="form-group">
+        <label class="form-label">Piso</label>
+        <div class="piso-selector">
+          <button type="button" class="piso-ficha-btn" data-piso="S1" onclick="selectPisoFicha(this,'S1')">S1</button>
+          <button type="button" class="piso-ficha-btn" data-piso="1"  onclick="selectPisoFicha(this,'1')">1</button>
+          <button type="button" class="piso-ficha-btn" data-piso="2"  onclick="selectPisoFicha(this,'2')">2</button>
+          <button type="button" class="piso-ficha-btn" data-piso="3"  onclick="selectPisoFicha(this,'3')">3</button>
+          <button type="button" class="piso-ficha-btn" data-piso="4"  onclick="selectPisoFicha(this,'4')">4</button>
+        </div>
+        <div id="piso-preview" style="font-size:11px;color:var(--text-dim);margin-top:4px;min-height:16px;"></div>
+      </div>
+
       <div class="form-group">
         <label class="form-label">Fotos (máx. 4)</label>
         <div class="photo-upload-area" onclick="document.getElementById('photo-input').click()">
@@ -757,6 +744,7 @@
         <input type="file" id="photo-input" accept="image/*" multiple style="display:none" onchange="handlePhotos(event)">
         <div class="photo-previews" id="photo-previews"></div>
       </div>
+
     </div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeModal()">Cancelar</button>
@@ -765,7 +753,7 @@
   </div>
 </div>
 
-<!-- MODAL: SELECCIONAR FICHA PARA PIN -->
+<!-- MODAL: SELECCIONAR FICHA PARA PIN (mapa) -->
 <div class="modal-overlay" id="pin-select-modal">
   <div class="modal">
     <div class="modal-header">
@@ -774,7 +762,7 @@
     </div>
     <div class="modal-body">
       <div class="form-group">
-        <label class="form-label">Piso</label>
+        <label class="form-label">Piso del Pin</label>
         <div class="piso-row" id="piso-row">
           <button class="piso-btn" onclick="selectPiso(this,'S1')">S1</button>
           <button class="piso-btn" onclick="selectPiso(this,'1')">1</button>
@@ -795,6 +783,13 @@
 </div>
 
 <script>
+  // ── Estado local ─────────────────────────────────────────────
+  window._editFotos     = [];
+  window._selectedPiso  = null;   // piso seleccionado en el formulario de ficha
+  window._pendingPinCoords = null;
+  window._pendingPisoSel   = null;
+  let _pinMode = false;
+
   // ── TABS ──────────────────────────────────────────────────────
   function switchTab(name, btn) {
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -804,18 +799,71 @@
     if (name === 'mapa') window.renderPins && window.renderPins();
   }
 
-  // ── FICHA MODAL ───────────────────────────────────────────────
-  window._editFotos = [];
-  window._pendingPinCoords = null;
-  window._pendingPisoSel = null;
+  // ── NIVEL PREVIEW (tiempo real en formulario) ─────────────────
+  const NIVEL_COLOR_JS  = { 'Leve':'#22c55e', 'Moderado':'#f97316', 'Severo':'#ef4444' };
+  const NIVEL_LABEL_JS  = { 'Leve':'Verde — Daño Leve', 'Moderado':'Naranja — Daño Moderado', 'Severo':'Rojo — Daño Severo' };
 
+  function updateNivelPreview() {
+    const nivel   = document.getElementById('modal-nivel').value;
+    const preview = document.getElementById('nivel-preview');
+    const swatch  = document.getElementById('nivel-swatch');
+    const text    = document.getElementById('nivel-preview-text');
+    if (nivel && NIVEL_COLOR_JS[nivel]) {
+      swatch.style.background = NIVEL_COLOR_JS[nivel];
+      swatch.style.boxShadow  = `0 0 6px ${NIVEL_COLOR_JS[nivel]}`;
+      text.textContent = NIVEL_LABEL_JS[nivel];
+      preview.classList.add('visible');
+      // Colorear los piso-buttons con el color del nivel seleccionado
+      document.querySelectorAll('.piso-ficha-btn.selected').forEach(b => {
+        b.style.background   = NIVEL_COLOR_JS[nivel];
+        b.style.borderColor  = NIVEL_COLOR_JS[nivel];
+      });
+    } else {
+      preview.classList.remove('visible');
+      // Resetear piso buttons seleccionados a azul default
+      document.querySelectorAll('.piso-ficha-btn.selected').forEach(b => {
+        b.style.background  = 'var(--accent)';
+        b.style.borderColor = 'var(--accent)';
+      });
+    }
+  }
+
+  // ── PISO SELECTOR (en formulario de ficha) ───────────────────
+  function selectPisoFicha(btn, piso) {
+    document.querySelectorAll('.piso-ficha-btn').forEach(b => {
+      b.classList.remove('selected');
+      b.style.background  = '';
+      b.style.borderColor = '';
+      b.style.color       = '';
+    });
+    btn.classList.add('selected');
+    window._selectedPiso = piso;
+
+    // Colorear según nivel activo
+    const nivel = document.getElementById('modal-nivel').value;
+    const clr   = NIVEL_COLOR_JS[nivel] || 'var(--accent)';
+    btn.style.background  = clr;
+    btn.style.borderColor = clr;
+    btn.style.color       = '#fff';
+
+    document.getElementById('piso-preview').textContent = `Piso seleccionado: ${piso}`;
+  }
+
+  // ── FICHA MODAL ───────────────────────────────────────────────
   function openAddModal() {
-    document.getElementById('modal-fecha').value = '';
-    document.getElementById('modal-ubicacion').value = '';
-    document.getElementById('modal-tipologia').value = '';
+    document.getElementById('modal-fecha').value      = '';
+    document.getElementById('modal-ubicacion').value  = '';
+    document.getElementById('modal-tipologia').value  = '';
     document.getElementById('modal-estructura').value = '';
-    document.getElementById('modal-nivel').value = '';
-    window._editFotos = [];
+    document.getElementById('modal-nivel').value      = '';
+    document.getElementById('nivel-preview').classList.remove('visible');
+    document.getElementById('piso-preview').textContent = '';
+    document.querySelectorAll('.piso-ficha-btn').forEach(b => {
+      b.classList.remove('selected');
+      b.style.background = b.style.borderColor = b.style.color = '';
+    });
+    window._editFotos    = [];
+    window._selectedPiso = null;
     renderPhotoPreview();
     document.getElementById('modal-title').textContent = 'Añadir Ficha Técnica';
     document.getElementById('ficha-modal').classList.add('open');
@@ -823,27 +871,31 @@
 
   function closeModal() {
     document.getElementById('ficha-modal').classList.remove('open');
-    // reset editingId via global
-    window._editingIdReset && window._editingIdReset();
   }
 
   async function submitFicha() {
-    const fecha = document.getElementById('modal-fecha').value.trim();
-    const ubicacion = document.getElementById('modal-ubicacion').value;
-    const tipologia = document.getElementById('modal-tipologia').value;
+    const fecha      = document.getElementById('modal-fecha').value.trim();
+    const ubicacion  = document.getElementById('modal-ubicacion').value;
+    const tipologia  = document.getElementById('modal-tipologia').value;
     const estructura = document.getElementById('modal-estructura').value;
-    const nivel = document.getElementById('modal-nivel').value;
+    const nivel      = document.getElementById('modal-nivel').value;
+    const piso       = window._selectedPiso;
+
     if (!fecha || !ubicacion || !tipologia || !estructura || !nivel) {
-      alert('Por favor completa todos los campos.'); return;
+      alert('Por favor completa todos los campos obligatorios.'); return;
     }
-    const data = { fecha, ubicacion, tipologia, estructura, nivel, fotos: window._editFotos, ts: Date.now() };
+    if (!piso) {
+      alert('Selecciona el piso de la estructura.'); return;
+    }
+
+    const data = { fecha, ubicacion, tipologia, estructura, nivel, piso, fotos: window._editFotos, ts: Date.now() };
     await window.addFicha(data);
     closeModal();
   }
 
   // ── PHOTOS ───────────────────────────────────────────────────
   function handlePhotos(e) {
-    const files = Array.from(e.target.files);
+    const files     = Array.from(e.target.files);
     const remaining = 4 - window._editFotos.length;
     if (remaining <= 0) { alert('Máximo 4 fotos.'); return; }
     files.slice(0, remaining).forEach(f => compressPhoto(f, src => {
@@ -861,8 +913,8 @@
         const MAX = 800;
         let w = img.width, h = img.height;
         if (w > MAX || h > MAX) {
-          if (w > h) { h = Math.round(h * MAX/w); w = MAX; }
-          else { w = Math.round(w * MAX/h); h = MAX; }
+          if (w > h) { h = Math.round(h*MAX/w); w = MAX; }
+          else       { w = Math.round(w*MAX/h); h = MAX; }
         }
         const canvas = document.createElement('canvas');
         canvas.width = w; canvas.height = h;
@@ -875,12 +927,12 @@
   }
 
   function renderPhotoPreview() {
-    const container = document.getElementById('photo-previews');
-    container.innerHTML = window._editFotos.map((src, i) => `
-      <div class="photo-preview-item">
-        <img src="${src}" alt="">
-        <button class="photo-remove" onclick="removePhoto(${i})">×</button>
-      </div>`).join('');
+    document.getElementById('photo-previews').innerHTML =
+      window._editFotos.map((src,i) => `
+        <div class="photo-preview-item">
+          <img src="${src}" alt="">
+          <button class="photo-remove" onclick="removePhoto(${i})">×</button>
+        </div>`).join('');
   }
 
   function removePhoto(i) {
@@ -889,24 +941,19 @@
   }
 
   // ── MAP ───────────────────────────────────────────────────────
-  let pinMode = false;
-
   function togglePinMode() {
-    pinMode = !pinMode;
-    const btn = document.getElementById('pin-mode-btn');
-    const hint = document.getElementById('pin-hint');
-    const mc = document.getElementById('map-container');
-    btn.classList.toggle('active', pinMode);
-    hint.style.display = pinMode ? 'block' : 'none';
-    mc.classList.toggle('pin-mode', pinMode);
+    _pinMode = !_pinMode;
+    document.getElementById('pin-mode-btn').classList.toggle('active', _pinMode);
+    document.getElementById('pin-hint').style.display = _pinMode ? 'block' : 'none';
+    document.getElementById('map-container').classList.toggle('pin-mode', _pinMode);
   }
 
   function handleMapClick(e) {
-    if (!pinMode) return;
-    const mc = document.getElementById('map-container');
+    if (!_pinMode) return;
+    const mc   = document.getElementById('map-container');
     const rect = mc.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width * 100).toFixed(2);
-    const y = ((e.clientY - rect.top) / rect.height * 100).toFixed(2);
+    const x    = ((e.clientX - rect.left) / rect.width  * 100).toFixed(2);
+    const y    = ((e.clientY - rect.top)  / rect.height * 100).toFixed(2);
     window._pendingPinCoords = { x: parseFloat(x), y: parseFloat(y) };
     openPinSelectModal();
   }
@@ -917,7 +964,7 @@
     const reader = new FileReader();
     reader.onload = ev => {
       const src = ev.target.result;
-      const bg = document.getElementById('map-bg');
+      const bg  = document.getElementById('map-bg');
       bg.src = src; bg.style.display = 'block';
       document.getElementById('map-placeholder').style.display = 'none';
       window.saveMapImage && window.saveMapImage(src);
@@ -929,17 +976,24 @@
   function openPinSelectModal() {
     window._pendingPisoSel = null;
     document.querySelectorAll('.piso-btn').forEach(b => b.classList.remove('selected'));
-    const opts = document.getElementById('ficha-options');
     const fichas = window._fichasData || [];
-    if (!fichas.length) { alert('No hay fichas técnicas registradas. Añade una ficha primero.'); return; }
-    opts.innerHTML = fichas.map(f => `
-      <div class="ficha-option" onclick="selectFichaForPin('${f.id}')">
+    if (!fichas.length) { alert('No hay fichas registradas. Añade una primero.'); return; }
+
+    document.getElementById('ficha-options').innerHTML = fichas.map(f => {
+      const nivelCls = { 'Leve':'badge-leve','Moderado':'badge-mod','Severo':'badge-sev' }[f.nivel] || '';
+      const clr      = NIVEL_COLOR_JS[f.nivel] || '#4a5a7a';
+      const pisoBadge = f.piso ? `<span class="piso-tag" style="background:${clr}22;color:${clr};border-color:${clr}44;font-size:10px;padding:2px 7px">P${f.piso}</span>` : '';
+      return `<div class="ficha-option" onclick="selectFichaForPin('${f.id}')">
         <div>
           <div class="ficha-option-name">${f.tipologia||'—'}</div>
           <div class="ficha-option-meta">${f.fecha||''} · ${f.ubicacion||''}</div>
         </div>
-        <span class="badge ${{ 'Leve':'badge-leve','Moderado':'badge-mod','Severo':'badge-sev' }[f.nivel]||''}">${f.nivel||''}</span>
-      </div>`).join('');
+        <div style="display:flex;align-items:center;gap:5px;">
+          ${pisoBadge}
+          <span class="badge ${nivelCls}">${f.nivel||''}</span>
+        </div>
+      </div>`;
+    }).join('');
     document.getElementById('pin-select-modal').classList.add('open');
   }
 
@@ -956,12 +1010,17 @@
 
   async function selectFichaForPin(fichaId) {
     const piso = window._pendingPisoSel;
-    if (!piso) { alert('Selecciona un piso primero.'); return; }
+    if (!piso) { alert('Selecciona el piso del pin primero.'); return; }
     const coords = window._pendingPinCoords;
     if (!coords) return;
     await window.addPin({ fichaId, piso, x: coords.x, y: coords.y });
     closePinModal();
-    togglePinMode();
+    if (_pinMode) togglePinMode();
+  }
+
+  function confirmDelete(id) {
+    if (confirm('¿Eliminar esta ficha? Los pins vinculados también serán eliminados.'))
+      window.deleteFicha(id);
   }
 </script>
 </body>
