@@ -34,37 +34,78 @@
   const NIVEL_CLS   = { 'Leve':'badge-leve', 'Moderado':'badge-mod', 'Severo':'badge-sev' };
   const NIVEL_BORDER= { 'Leve':'border-leve', 'Moderado':'border-mod', 'Severo':'border-sev' };
 
-  // ── Firebase init ────────────────────────────────────────────
-  try {
-    app = initializeApp(firebaseConfig);
-    db  = getFirestore(app);
-    setConnectionStatus(true);
-    initListeners();
-  } catch(e) {
-    setConnectionStatus(false);
-    console.warn("Firebase no configurado:", e.message);
-    window._offlineMode = true;
-    initOfflineMode();
-  }
-
-  function setConnectionStatus(online) {
+  function setConnectionStatus(online, msg) {
     const dot   = document.getElementById('conn-dot');
     const label = document.getElementById('conn-label');
-    if (!dot) { window._pendingConn = online; return; }
+    if (!dot) { window._pendingConn = online; window._pendingMsg = msg; return; }
     dot.className   = online ? 'conn-dot online' : 'conn-dot offline';
-    label.textContent = online ? 'Conectado' : 'Sin conexión';
+    label.textContent = msg || (online ? 'Conectado' : 'Sin conexión');
+  }
+
+  // ── Validar credenciales antes de inicializar ────────────────
+  const credsFilled = Object.values(firebaseConfig).every(v => v && v.trim() !== '');
+
+  if (!credsFilled) {
+    // Credenciales vacías → modo offline + aviso visible
+    setConnectionStatus(false, '⚠ Sin credenciales Firebase');
+    window._offlineMode = true;
+    initOfflineMode();
+    showFirebaseWarning();
+  } else {
+    try {
+      app = initializeApp(firebaseConfig);
+      db  = getFirestore(app);
+      initListeners();
+    } catch(e) {
+      setConnectionStatus(false, 'Error Firebase');
+      console.error("Firebase init error:", e);
+      window._offlineMode = true;
+      initOfflineMode();
+    }
+  }
+
+  function showFirebaseWarning() {
+    window.addEventListener('DOMContentLoaded', () => {
+      const banner = document.createElement('div');
+      banner.style.cssText = `
+        position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
+        background:#1c2438; border:1px solid #f97316; color:#f97316;
+        font-family:'IBM Plex Mono',monospace; font-size:12px;
+        padding:10px 20px; border-radius:8px; z-index:9999;
+        box-shadow:0 4px 20px rgba(0,0,0,.5); text-align:center; max-width:90vw;`;
+      banner.innerHTML = `⚠ Firebase no configurado — las fichas no se guardarán ni sincronizarán.<br>
+        Agrega tus credenciales en el bloque <code>firebaseConfig</code> del archivo HTML.`;
+      document.body.appendChild(banner);
+      setTimeout(() => banner.remove(), 10000);
+    });
   }
 
   // ── Listeners Firestore ──────────────────────────────────────
   function initListeners() {
-    onSnapshot(collection(db, "fichas"), snap => {
-      fichasData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      renderFichas();
-    });
-    onSnapshot(collection(db, "pins"), snap => {
-      pinsData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      renderPins();
-    });
+    // Suscripción a fichas con manejo de error
+    onSnapshot(
+      collection(db, "fichas"),
+      snap => {
+        fichasData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setConnectionStatus(true, 'Conectado');
+        renderFichas();
+      },
+      err => {
+        console.error("Firestore fichas error:", err);
+        setConnectionStatus(false, 'Error: ' + err.code);
+      }
+    );
+    // Suscripción a pins con manejo de error
+    onSnapshot(
+      collection(db, "pins"),
+      snap => {
+        pinsData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        renderPins();
+      },
+      err => {
+        console.error("Firestore pins error:", err);
+      }
+    );
     // Plano embebido — sin listener de config para imagen
   }
 
@@ -232,7 +273,7 @@
   Object.defineProperty(window, '_pinsData',   { get: () => pinsData });
 
   window.addEventListener('DOMContentLoaded', () => {
-    if (window._pendingConn !== undefined) setConnectionStatus(window._pendingConn);
+    if (window._pendingConn !== undefined) setConnectionStatus(window._pendingConn, window._pendingMsg);
     if (window._offlineMode) { renderFichas(); renderPins(); }
   });
 </script>
