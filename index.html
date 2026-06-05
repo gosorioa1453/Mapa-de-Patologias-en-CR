@@ -15,12 +15,12 @@
   //  CONFIGURACIÓN FIREBASE — COMPLETAR CON TUS CREDENCIALES
   // ─────────────────────────────────────────────────────────────
   const firebaseConfig = {
-    apiKey: "AIzaSyABNRIjvI2vtrYncd1GRUvr3xRA4M8Z8I0",              // <-- tu apiKey aquí
-    authDomain: "mapa-de-patologias-en-cr.firebaseapp.com",          // <-- tu authDomain aquí
-    projectId: "mapa-de-patologias-en-cr",           // <-- tu projectId aquí
-    storageBucket: "mapa-de-patologias-en-cr.firebasestorage.app",       // <-- tu storageBucket aquí
-    messagingSenderId: "719905773991",   // <-- tu messagingSenderId aquí
-    appId: "1:719905773991:web:47171adc518ff7284abe82"                // <-- tu appId aquí
+    apiKey: "",              // <-- tu apiKey aquí
+    authDomain: "",          // <-- tu authDomain aquí
+    projectId: "",           // <-- tu projectId aquí
+    storageBucket: "",       // <-- tu storageBucket aquí
+    messagingSenderId: "",   // <-- tu messagingSenderId aquí
+    appId: ""                // <-- tu appId aquí
   };
   // ─────────────────────────────────────────────────────────────
 
@@ -104,6 +104,7 @@
       },
       err => {
         console.error("Firestore pins error:", err);
+        setConnectionStatus(false, 'Error pins: ' + err.code);
       }
     );
     // Plano embebido — sin listener de config para imagen
@@ -771,18 +772,9 @@
     </div>
     <div class="modal-body">
       <div class="form-group">
-        <label class="form-label">Piso del Pin</label>
-        <div class="piso-row" id="piso-row">
-          <button class="piso-btn" onclick="selectPiso(this,'S1')">S1</button>
-          <button class="piso-btn" onclick="selectPiso(this,'1')">1</button>
-          <button class="piso-btn" onclick="selectPiso(this,'2')">2</button>
-          <button class="piso-btn" onclick="selectPiso(this,'3')">3</button>
-          <button class="piso-btn" onclick="selectPiso(this,'4')">4</button>
-        </div>
-      </div>
-      <div class="form-group">
         <label class="form-label">Seleccionar Ficha</label>
-        <div id="ficha-options" style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;"></div>
+        <p style="font-size:11px;color:var(--text-dim);margin-bottom:8px;">El piso del pin se tomará automáticamente del piso registrado en la ficha.</p>
+        <div id="ficha-options" style="display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto;"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -796,7 +788,6 @@
   window._editFotos     = [];
   window._selectedPiso  = null;   // piso seleccionado en el formulario de ficha
   window._pendingPinCoords = null;
-  window._pendingPisoSel   = null;
   let _pinMode = false;
 
   // ── TABS ──────────────────────────────────────────────────────
@@ -971,15 +962,13 @@
 
   // ── PIN SELECT MODAL ──────────────────────────────────────────
   function openPinSelectModal() {
-    window._pendingPisoSel = null;
-    document.querySelectorAll('.piso-btn').forEach(b => b.classList.remove('selected'));
     const fichas = window._fichasData || [];
     if (!fichas.length) { alert('No hay fichas registradas. Añade una primero.'); return; }
 
     document.getElementById('ficha-options').innerHTML = fichas.map(f => {
       const nivelCls = { 'Leve':'badge-leve','Moderado':'badge-mod','Severo':'badge-sev' }[f.nivel] || '';
       const clr      = NIVEL_COLOR_JS[f.nivel] || '#4a5a7a';
-      const pisoBadge = f.piso ? `<span class="piso-tag" style="background:${clr}22;color:${clr};border-color:${clr}44;font-size:10px;padding:2px 7px">P${f.piso}</span>` : '';
+      const pisoBadge = f.piso ? `<span class="piso-tag" style="background:${clr}22;color:${clr};border-color:${clr}44;font-size:10px;padding:2px 7px">Piso ${f.piso}</span>` : '';
       return `<div class="ficha-option" onclick="selectFichaForPin('${f.id}')">
         <div>
           <div class="ficha-option-name">${f.tipologia||'—'}</div>
@@ -999,17 +988,12 @@
     window._pendingPinCoords = null;
   }
 
-  function selectPiso(btn, piso) {
-    document.querySelectorAll('.piso-btn').forEach(b => b.classList.remove('selected'));
-    btn.classList.add('selected');
-    window._pendingPisoSel = piso;
-  }
-
   async function selectFichaForPin(fichaId) {
-    const piso = window._pendingPisoSel;
-    if (!piso) { alert('Selecciona el piso del pin primero.'); return; }
     const coords = window._pendingPinCoords;
     if (!coords) return;
+    // Tomar el piso directamente de la ficha
+    const ficha = (window._fichasData || []).find(f => f.id === fichaId);
+    const piso  = ficha?.piso || '—';
     await window.addPin({ fichaId, piso, x: coords.x, y: coords.y });
     closePinModal();
     if (_pinMode) togglePinMode();
